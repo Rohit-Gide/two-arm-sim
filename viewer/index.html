@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Two-arm cell</title>
+<style>
+  :root { --bg:#0f1317; --panel:rgba(18,23,29,.86); --line:rgba(255,255,255,.09); --text:#e7ebf0; --dim:#8d98a5;
+          --a:#4cc2ff; --b:#ff9d4c; --ok:#52d98a; --warn:#ffcf4c; --bad:#ff5d5d; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--text); overflow:hidden;
+              font:13px/1.45 ui-sans-serif,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  canvas { display:block; }
+  .mono { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-variant-numeric:tabular-nums; }
+  .panel { position:fixed; background:var(--panel); border:1px solid var(--line); border-radius:10px; backdrop-filter:blur(8px); }
+  #left { top:14px; left:14px; width:318px; max-height:calc(100% - 28px); overflow:auto; padding:14px; }
+  #right { top:14px; right:14px; width:300px; max-height:calc(100% - 28px); overflow:auto; padding:14px; }
+  #bar { bottom:14px; left:50%; transform:translateX(-50%); padding:10px 12px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;
+         max-width:calc(100% - 28px); justify-content:center; }
+  h1 { font-size:14px; margin:0 0 2px; letter-spacing:.02em; }
+  .sub { color:var(--dim); font-size:12px; margin-bottom:12px; }
+  .card { border-top:1px solid var(--line); padding:10px 0 4px; }
+  .card h2 { font-size:12px; margin:0 0 6px; display:flex; align-items:center; gap:8px; text-transform:uppercase; letter-spacing:.08em; }
+  .dot { width:9px; height:9px; border-radius:50%; display:inline-block; }
+  .pill { margin-left:auto; font-size:11px; padding:1px 8px; border-radius:99px; border:1px solid var(--line); text-transform:none; letter-spacing:0; }
+  .pill.idle { color:var(--ok); } .pill.moving { color:var(--warn); } .pill.fault { color:#fff; background:var(--bad); border-color:var(--bad); }
+  table { width:100%; border-collapse:collapse; }
+  td { padding:1px 0; } td.k { color:var(--dim); width:92px; white-space:nowrap; } td.v { text-align:right; }
+  .joints { display:grid; grid-template-columns:repeat(6,1fr); gap:4px; margin:4px 0 6px; }
+  .joints div { background:rgba(255,255,255,.05); border-radius:5px; padding:3px 0 6px; text-align:center; font-size:11.5px; position:relative; overflow:hidden; }
+  .joints i { position:absolute; left:0; bottom:0; height:3px; background:var(--ok); }
+  .legend { color:var(--dim); font-size:10.5px; margin:-2px 0 6px; }
+  .warn { color:var(--warn); font-size:12px; }
+  .joints span { display:block; color:var(--dim); font-size:10px; }
+  .fault { color:var(--bad); font-size:12px; margin-top:4px; white-space:pre-wrap; }
+  button { background:rgba(255,255,255,.07); color:var(--text); border:1px solid var(--line); border-radius:7px; padding:7px 12px;
+           font:inherit; cursor:pointer; }
+  button:hover { background:rgba(255,255,255,.14); } button:disabled { opacity:.4; cursor:default; }
+  button.primary { background:#2a6df4; border-color:#2a6df4; } button.primary:hover { background:#3b7bff; }
+  label.chk { color:var(--dim); display:flex; gap:5px; align-items:center; cursor:pointer; user-select:none; }
+  #step { width:100%; text-align:center; color:var(--dim); min-height:18px; font-size:12.5px; }
+  #events { font-size:11.5px; color:var(--dim); max-height:300px; overflow:auto; }
+  #events div { padding:2px 0; border-bottom:1px dashed rgba(255,255,255,.05); }
+  #events b { color:var(--text); font-weight:500; }
+  a { color:var(--a); text-decoration:none; } a:hover { text-decoration:underline; }
+  .big { font-size:20px; font-weight:600; }
+  @media (max-width:980px) { #right { display:none; } #left { width:280px; } }
+</style>
+</head>
+<body>
+<div id="left" class="panel">
+  <h1>Two-arm cell</h1>
+  <div class="sub"><span id="robotName"></span> &times; 2 &middot; t = <span id="t" class="mono">0.0</span> s &middot; <a href="/api" target="_blank">API</a></div>
+  <div id="arms"></div>
+</div>
+<div id="right" class="panel">
+  <div class="card" style="border-top:0;padding-top:0">
+    <h2>Between the arms</h2>
+    <table>
+      <tr><td class="k" style="width:130px">closest distance</td><td class="v mono big" id="dist">&ndash;</td></tr>
+    </table>
+    <div id="touch" class="mono" style="font-size:11.5px;margin-top:4px"></div>
+  </div>
+  <div class="card"><h2>Parts</h2><div id="parts"></div></div>
+  <div class="card"><h2>Events</h2><div id="events" class="mono"></div></div>
+</div>
+<div id="bar" class="panel">
+  <button id="reset">Reset</button>
+  <button id="stop">Stop</button>
+  <label class="chk"><input type="checkbox" id="frames" checked> frames</label>
+  <label class="chk"><input type="checkbox" id="trails" checked> paths</label>
+</div>
+
+<script type="importmap">{ "imports": { "three": "./lib/three.module.js", "three/addons/": "./lib/addons/" } }</script>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { STLLoader } from "three/addons/loaders/STLLoader.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import { toCreasedNormals } from "three/addons/utils/BufferGeometryUtils.js";
+import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
+
+const $ = (s) => document.querySelector(s);
+const get = (p) => fetch(p).then((r) => r.json());
+const post = (p, body = {}) => fetch(p, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json());
+const ARM_COLOR = { a: "#4cc2ff", b: "#ff9d4c" };
+
+// ---------------------------------------------------------------- renderer (world frame: metres, z up)
+THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+document.body.prepend(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color("#161b21");
+scene.fog = new THREE.Fog("#161b21", 14, 34);
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.03).texture;
+scene.environmentIntensity = 0.55;
+
+const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.05, 80);
+camera.position.set(2.2, -5.4, 3.6);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0, 0.85);
+controls.enableDamping = true;
+controls.maxPolarAngle = Math.PI / 2 - 0.02;
+controls.minDistance = 1.2; controls.maxDistance = 14;
+
+const sun = new THREE.DirectionalLight("#fff4e2", 2.4);
+sun.position.set(3.5, -4.5, 7);
+sun.castShadow = true;
+sun.shadow.mapSize.set(4096, 4096);
+Object.assign(sun.shadow.camera, { left: -4.5, right: 4.5, top: 4.5, bottom: -4.5, near: 1, far: 20 });
+sun.shadow.bias = -0.0002; sun.shadow.normalBias = 0.01;
+scene.add(sun, new THREE.HemisphereLight("#cfe2ff", "#2a2622", 0.55));
+const fill = new THREE.DirectionalLight("#9ec1ff", 0.5); fill.position.set(-5, 4, 3); scene.add(fill);
+
+// ---------------------------------------------------------------- floor: sealed concrete with saw-cut joints and a painted cell boundary
+function floorTexture() {
+  const c = document.createElement("canvas"); c.width = c.height = 1024;
+  const g = c.getContext("2d");
+  g.fillStyle = "#6b6f73"; g.fillRect(0, 0, 1024, 1024);
+  for (let i = 0; i < 26000; i++) {                       // aggregate speckle
+    const v = 90 + Math.random() * 50 | 0;
+    g.fillStyle = `rgba(${v},${v},${v + 3},${0.05 + Math.random() * 0.10})`;
+    const r = Math.random() * 2.2;
+    g.fillRect(Math.random() * 1024, Math.random() * 1024, r, r);
+  }
+  for (let i = 0; i < 60; i++) {                          // soft blotches (trowel marks, wear)
+    const x = Math.random() * 1024, y = Math.random() * 1024, r = 40 + Math.random() * 140;
+    const gr = g.createRadialGradient(x, y, 0, x, y, r);
+    const d = Math.random() < 0.5 ? "0,0,0" : "255,255,255";
+    gr.addColorStop(0, `rgba(${d},0.05)`); gr.addColorStop(1, `rgba(${d},0)`);
+    g.fillStyle = gr; g.fillRect(x - r, y - r, 2 * r, 2 * r);
+  }
+  g.strokeStyle = "rgba(30,32,34,.55)"; g.lineWidth = 2; g.strokeRect(1, 1, 1022, 1022);   // saw-cut joint
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(10, 10); t.anisotropy = 8; t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshStandardMaterial({ map: floorTexture(), roughness: 0.62, metalness: 0.0 }));
+floor.receiveShadow = true; scene.add(floor);
+function paintLine(x0, y0, x1, y1, w = 0.08, color = "#e8b81c") {
+  const len = Math.hypot(x1 - x0, y1 - y0);
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(len, w), new THREE.MeshStandardMaterial({ color, roughness: 0.7 }));
+  m.position.set((x0 + x1) / 2, (y0 + y1) / 2, 0.002); m.rotation.z = Math.atan2(y1 - y0, x1 - x0); m.receiveShadow = true; scene.add(m);
+}
+const BX = 2.7, BY = 2.3;
+paintLine(-BX, -BY, BX, -BY); paintLine(BX, -BY, BX, BY); paintLine(BX, BY, -BX, BY); paintLine(-BX, BY, -BX, -BY);
+
+// ---------------------------------------------------------------- helpers
+const steel = (color, rough = 0.5, metal = 0.6) => new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal });
+function box(sx, sy, sz, mat, r = 0.004) {
+  const m = new THREE.Mesh(new RoundedBoxGeometry(sx, sy, sz, 2, Math.min(r, sx / 2, sy / 2, sz / 2)), mat);
+  m.castShadow = m.receiveShadow = true; return m;
+}
+function axes(len = 0.14) {
+  const g = new THREE.Group();
+  [["#ff4d4d", [1, 0, 0]], ["#52d98a", [0, 1, 0]], ["#4c8dff", [0, 0, 1]]].forEach(([c, d]) => {
+    const a = new THREE.ArrowHelper(new THREE.Vector3(...d), new THREE.Vector3(), len, c, len * 0.22, len * 0.1);
+    a.line.material.depthTest = a.cone.material.depthTest = false; a.renderOrder = 10; g.add(a);
+  });
+  return g;
+}
+function label(text, color) {
+  const c = document.createElement("canvas"); c.width = 256; c.height = 128;
+  const g = c.getContext("2d");
+  g.fillStyle = "rgba(15,19,23,.85)"; g.beginPath(); g.roundRect(48, 24, 160, 80, 18); g.fill();
+  g.fillStyle = color; g.font = "600 54px ui-sans-serif, system-ui"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(text, 128, 66);
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false }));
+  s.scale.set(0.5, 0.25, 1); s.renderOrder = 20; return s;
+}
+const setMatrix = (obj, M) => {                              // row-major 4x4 from the API
+  obj.matrixAutoUpdate = false; obj.matrix.set(...M.flat()); obj.matrixWorldNeedsUpdate = true;
+};
+
+// ---------------------------------------------------------------- build the cell from GET /api/scene
+const S = await get("/api/scene");
+$("#robotName").textContent = S.robot.name;
+const loader = new STLLoader();
+const meshCache = {};
+const loadLink = (name) => meshCache[name] ??= loader.loadAsync(S.robot.mesh_url.replace("{link}", name)).then((g) => toCreasedNormals(g, Math.PI / 5));
+const paint = {};
+const linkMat = (name) => paint[name] ??= new THREE.MeshPhysicalMaterial({
+  color: S.robot.colors[name] || S.robot.colors.default, roughness: name === "link_6" ? 0.35 : 0.42,
+  metalness: name === "link_6" ? 0.8 : 0.05, clearcoat: name === "link_6" ? 0 : 0.5, clearcoatRoughness: 0.35 });
+
+const arms = {}, framesOn = [], trails = {};
+for (const [p, arm] of Object.entries(S.arms)) {
+  const root = new THREE.Group();
+  root.position.set(...arm.base.pos); root.rotation.z = arm.base.yaw; scene.add(root);
+  const plate = box(0.62, 0.62, 0.02, steel("#2b3036", 0.6, 0.7)); plate.position.z = 0.01; root.add(plate);
+  const joints = [];
+  let parent = root;
+  S.robot.links.forEach((name, i) => {
+    const g = new THREE.Group();
+    if (i > 0) { g.position.set(...S.robot.chain[i - 1].origin); joints.push({ g, axis: new THREE.Vector3(...S.robot.chain[i - 1].axis) }); }
+    parent.add(g); parent = g;
+    loadLink(name).then((geo) => { const m = new THREE.Mesh(geo, linkMat(name)); m.castShadow = m.receiveShadow = true; g.add(m); });
+  });
+  // the gripper, in the tool0 frame (z out of the wrist, jaws along y)
+  const tool = new THREE.Group();
+  const F = S.robot.flange_to_tool0;
+  setMatrix(tool, [[...F[0], 0], [...F[1], 0], [...F[2], 0], [0, 0, 0, 1]]);
+  parent.add(tool);
+  const G = S.gripper, dark = steel("#30353b", 0.45, 0.75), bright = steel("#b9c0c8", 0.3, 0.9);
+  const adapter = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.02, 40), bright);
+  adapter.rotation.x = Math.PI / 2; adapter.position.z = 0.01; adapter.castShadow = true; tool.add(adapter);
+  const body = box(...G.body.size, dark, 0.008); body.position.z = G.body.z; tool.add(body);
+  const rail = box(G.body.size[0] * 0.5, G.body.size[1] * 0.96, 0.012, bright, 0.002); rail.position.z = G.body.z + G.body.size[2] / 2; tool.add(rail);
+  const fingers = [1, -1].map((sgn) => { const f = box(...G.finger.size, bright, 0.003); f.position.z = G.finger.z; f.userData.sgn = sgn; tool.add(f); return f; });
+  const tcp = new THREE.Group(); tcp.position.z = G.tcp_z; tool.add(tcp);
+  const tcpAxes = axes(0.13); tcp.add(tcpAxes); framesOn.push(tcpAxes);
+  const baseAxes = axes(0.3); baseAxes.position.z = 0.03; root.add(baseAxes); framesOn.push(baseAxes);
+  const tag = label(p.toUpperCase(), ARM_COLOR[p]); tag.position.set(-0.45, 0, 0.35); root.add(tag);
+  const N = 900, geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(N * 3), 3)); geo.setDrawRange(0, 0);
+  const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: ARM_COLOR[p], transparent: true, opacity: 0.85 }));
+  line.frustumCulled = false; scene.add(line);
+  trails[p] = { line, pts: [], N };
+  arms[p] = { joints, fingers, tcp, G };
+}
+// fixtures: tables (top, legs, shelf) and stands (post with a V cradle); each stays inside its collision box
+for (const [name, f] of Object.entries(S.fixtures)) {
+  const [sx, sy, sz] = f.size, g = new THREE.Group(); g.position.set(f.pos[0], f.pos[1], 0); scene.add(g);
+  if (name.startsWith("table")) {
+    const top = box(sx, sy, 0.04, steel("#9aa1aa", 0.35, 0.85)); top.position.z = sz - 0.02; g.add(top);
+    const leg = steel("#343a41", 0.6, 0.6);
+    for (const dx of [-1, 1]) for (const dy of [-1, 1]) { const l = box(0.05, 0.05, sz - 0.04, leg); l.position.set(dx * (sx / 2 - 0.05), dy * (sy / 2 - 0.05), (sz - 0.04) / 2); g.add(l); }
+    const shelf = box(sx - 0.1, sy - 0.1, 0.02, leg); shelf.position.z = 0.18; g.add(shelf);
+  } else {
+    const post = box(sx * 0.7, sy * 0.5, sz - 0.03, steel(f.color, 0.55, 0.6)); post.position.z = (sz - 0.03) / 2; g.add(post);
+    const foot = box(sx, sy, 0.015, steel("#2b3036", 0.6, 0.7)); foot.position.z = 0.0075; g.add(foot);
+    const cradle = box(sx, sy, 0.03, steel("#c7a33a", 0.5, 0.4)); cradle.position.z = sz - 0.015; g.add(cradle);
+  }
+}
+const parts = {};
+for (const [name, p] of Object.entries(S.parts)) {
+  const m = box(...p.size, new THREE.MeshStandardMaterial({ color: p.color, roughness: 0.32, metalness: 0.9 }), 0.003);
+  scene.add(m); parts[name] = m;
+}
+const worldAxes = axes(0.4); worldAxes.position.set(0, 0, 0.004); scene.add(worldAxes); framesOn.push(worldAxes);
+
+// ---------------------------------------------------------------- panels
+const fmt = (v, d = 1) => (v >= 0 ? " " : "") + v.toFixed(d);
+$("#arms").innerHTML = Object.keys(S.arms).map((p) => `
+  <div class="card"><h2><span class="dot" style="background:${ARM_COLOR[p]}"></span>Arm ${p.toUpperCase()}<span class="pill" id="st-${p}">-</span></h2>
+    <div class="joints mono" id="j-${p}"></div>
+    <div class="legend">bar under each joint = motor torque / its limit</div>
+    <table class="mono">
+      <tr><td class="k">tcp x y z</td><td class="v" id="pos-${p}"></td></tr>
+      <tr><td class="k">w p r</td><td class="v" id="wpr-${p}"></td></tr>
+      <tr><td class="k">tcp speed</td><td class="v" id="spd-${p}"></td></tr>
+      <tr><td class="k">gripper</td><td class="v" id="grip-${p}"></td></tr>
+      <tr><td class="k">wrist load</td><td class="v" id="load-${p}"></td></tr>
+      <tr><td class="k">wrist force</td><td class="v" id="wf-${p}"></td></tr>
+      <tr><td class="k">servo</td><td class="v" id="servo-${p}"></td></tr>
+    </table><div class="warn" id="warn-${p}"></div><div class="fault" id="fault-${p}"></div></div>`).join("");
+
+function show(st) {
+  $("#t").textContent = st.t.toFixed(1);
+  for (const [p, a] of Object.entries(st.arms)) {
+    const A = arms[p];
+    A.joints.forEach((j, i) => j.g.quaternion.setFromAxisAngle(j.axis, a.joints[i]));
+    A.fingers.forEach((f) => { f.position.y = f.userData.sgn * (a.gripper.width / 2 + A.G.finger.size[1] / 2); });
+    const pill = $(`#st-${p}`); pill.textContent = a.status; pill.className = "pill " + a.status;
+    $(`#j-${p}`).innerHTML = a.joints_deg.map((v, i) => { const l = Math.min(1, a.motor_load[i]);
+      return `<div><span>J${i + 1}</span>${v.toFixed(1)}<i style="width:${(l * 100).toFixed(0)}%;background:${l > 0.9 ? "var(--bad)" : l > 0.5 ? "var(--warn)" : "var(--ok)"}"></i></div>`; }).join("");
+    const w = a.tcp.world;
+    $(`#pos-${p}`).textContent = w.pos.map((v) => fmt(v * 1000, 1)).join(" ") + " mm";
+    $(`#wpr-${p}`).textContent = w.wpr_deg.map((v) => fmt(v, 1)).join(" ") + " °";
+    $(`#spd-${p}`).textContent = (a.tcp_speed * 1000).toFixed(0) + " mm/s";
+    $(`#grip-${p}`).textContent = (a.gripper.width * 1000).toFixed(1) + " mm" + (a.gripper.holding ? "  " + a.gripper.squeeze_n.toFixed(0) + " N on " + a.gripper.holding : "");
+    $(`#load-${p}`).textContent = a.load_kg.toFixed(1) + " / " + a.payload_kg.toFixed(0) + " kg";
+    $(`#wf-${p}`).textContent = a.wrist.force.map((v) => fmt(v, 0)).join(" ") + " N";
+    $(`#servo-${p}`).textContent = (a.soft_float ? "soft " + a.soft_float : "stiff") + "  payload " + a.payload_declared_kg.toFixed(1) + " kg";
+    $(`#warn-${p}`).textContent = a.warnings.join("  ");
+    $(`#fault-${p}`).textContent = a.fault ? "FAULT " + a.fault.code + "  " + JSON.stringify(Object.fromEntries(Object.entries(a.fault).filter(([k]) => k !== "code"))) : "";
+    const T = trails[p], pos = w.pos, last = T.pts[T.pts.length - 1];
+    if (!last || Math.hypot(pos[0] - last[0], pos[1] - last[1], pos[2] - last[2]) > 0.004) {
+      T.pts.push(pos); if (T.pts.length > T.N) T.pts.shift();
+      const arr = T.line.geometry.attributes.position.array;
+      T.pts.forEach((q, i) => arr.set(q, i * 3));
+      T.line.geometry.attributes.position.needsUpdate = true; T.line.geometry.setDrawRange(0, T.pts.length);
+    }
+  }
+  for (const [name, p] of Object.entries(st.parts)) setMatrix(parts[name], p.pose.matrix);
+  const d = st.arm_distance, el = $("#dist");
+  const hit = st.touching.some((t) => /^[ab]:/.test(t[0]) && /^[ab]:/.test(t[1]) && t[0][0] !== t[1][0]);
+  el.textContent = hit ? "CONTACT" : d == null ? "> 300 mm" : (Math.max(0, d) * 1000).toFixed(0) + " mm";
+  el.style.color = hit ? "var(--bad)" : d != null && d < 0.05 ? "var(--warn)" : "var(--text)";
+  $("#touch").innerHTML = st.touching.slice(0, 5).map((t) => `<div style="color:var(--bad)">${t[0]} &times; ${t[1]}  ${t[2].toFixed(0)} N</div>`).join("");
+  $("#parts").innerHTML = "<table class='mono'>" + Object.entries(st.parts).map(([n, p]) =>
+    `<tr><td class="k">${n}</td><td class="v">${p.held_by.length ? "held by " + p.held_by.join(" + ").toUpperCase() : p.resting_on ? "on " + p.resting_on : "falling"}</td></tr>` +
+    `<tr><td class="k"></td><td class="v" style="color:var(--dim)">${p.mass} kg  z ${(p.pose.pos[2] * 1000).toFixed(0)} mm</td></tr>`).join("") + "</table>";
+}
+
+let lastEvent = 0;
+async function pollEvents() {
+  try {
+    const r = await get("/api/events?since=" + lastEvent);
+    if (r.last_event < lastEvent) { $("#events").innerHTML = ""; }
+    lastEvent = r.last_event;
+    const box = $("#events");
+    for (const e of r.events) {
+      const { n, t, arm, event, ...rest } = e, d = document.createElement("div");
+      d.innerHTML = `${t.toFixed(2)} <b style="color:${ARM_COLOR[arm] || "var(--text)"}">${arm ? arm.toUpperCase() : "cell"}</b> <b>${event}</b> ${Object.keys(rest).length ? JSON.stringify(rest).replace(/[{}"]/g, "").replace(/,/g, " ") : ""}`;
+      if (event === "fault") d.style.color = "var(--bad)";
+      if (event === "reset") { box.innerHTML = ""; Object.values(trails).forEach((T) => (T.pts.length = 0)); }
+      box.prepend(d);
+    }
+    while (box.children.length > 80) box.lastChild.remove();
+  } catch { /* server restarting */ }
+  setTimeout(pollEvents, 400);
+}
+async function pollState() {
+  try { show(await get("/api/state")); } catch { /* server restarting */ }
+  setTimeout(pollState, 33);
+}
+$("#reset").addEventListener("click", () => post("/api/reset"));
+$("#stop").addEventListener("click", () => post("/api/stop"));
+$("#frames").addEventListener("change", (e) => framesOn.forEach((f) => (f.visible = e.target.checked)));
+$("#trails").addEventListener("change", (e) => Object.values(trails).forEach((T) => (T.line.visible = e.target.checked)));
+
+addEventListener("resize", () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
+pollState(); pollEvents();
+window.__ready = Promise.all(S.robot.links.map(loadLink));
+</script>
+</body>
+</html>

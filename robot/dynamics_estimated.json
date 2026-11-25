@@ -1,0 +1,83 @@
+{
+  "note": "ESTIMATED, not from FANUC. See twoarm/dynamics.py for how. Replace with measured values when you have them.",
+  "link_mass": {
+    "base_link": 55.77,
+    "link_1": 63.55,
+    "link_2": 54.55,
+    "link_3": 50.65,
+    "link_4": 22.83,
+    "link_5": 2.43,
+    "link_6": 0.22
+  },
+  "joints": {
+    "joint_1": {
+      "torque_limit": 4739.1,
+      "armature": 116.038,
+      "damping": 27.849,
+      "frictionloss": 94.78,
+      "_max_gravity_torque": 0.0,
+      "_max_inertia": 232.08
+    },
+    "joint_2": {
+      "torque_limit": 4772.2,
+      "armature": 92.288,
+      "damping": 31.249,
+      "frictionloss": 95.44,
+      "_max_gravity_torque": 1389.7,
+      "_max_inertia": 184.58
+    },
+    "joint_3": {
+      "torque_limit": 1220.4,
+      "armature": 20.2,
+      "damping": 7.769,
+      "frictionloss": 24.41,
+      "_max_gravity_torque": 458.9,
+      "_max_inertia": 40.4
+    },
+    "joint_4": {
+      "torque_limit": 127.6,
+      "armature": 0.917,
+      "damping": 0.406,
+      "frictionloss": 2.55,
+      "_max_gravity_torque": 58.5,
+      "_max_inertia": 1.83
+    },
+    "joint_5": {
+      "torque_limit": 122.6,
+      "armature": 0.86,
+      "damping": 0.39,
+      "frictionloss": 2.45,
+      "_max_gravity_torque": 57.7,
+      "_max_inertia": 1.72
+    },
+    "joint_6": {
+      "torque_limit": 61.3,
+      "armature": 0.14,
+      "damping": 0.128,
+      "frictionloss": 1.23,
+      "_max_gravity_torque": 0.0,
+      "_max_inertia": 0.28
+    }
+  },
+  "gripper": {
+    "grip_force": 500.0,
+    "body_mass": 1.4,
+    "finger_mass": 0.3,
+    "finger_kp": 40000.0,
+    "finger_kv": 400.0,
+    "finger_damping": 20.0
+  },
+  "friction": {
+    "finger_pad": 0.9,
+    "metal": 0.4,
+    "arm": 0.5,
+    "floor": 0.6
+  },
+  "servo": {
+    "bandwidth_hz": 10.0,
+    "damping_ratio": 1.0,
+    "integral_hz": 1.5,
+    "collision_detect_fraction": 0.5,
+    "following_error_rad": 0.05236
+  }
+}
